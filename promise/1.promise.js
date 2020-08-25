@@ -8,16 +8,24 @@ let promise = new Promise((resolve, reject) => {
     console.log('执行了....');
     // throw Error('出了点状况...')
     
-    setTimeout(() => {
+    // setTimeout(() => {
         resolve('今天是周五啦啦啦～')
-    }, 100);
+    // }, 100);
 });
 
-promise.then(
+let promise2 = promise.then(
     (data) => { // onfulfilled 成功回调
         console.log(data)
+        return 100
+        // 1）step1 -> 不能引用同一个对象，会造成死循环
+        // return promise2
     },
     (err) => { // onrejected 失败回调
         console.log(err)
     }
+)
+
+promise2.then(
+    data => console.log(data),
+    err => console.log(err)
 )

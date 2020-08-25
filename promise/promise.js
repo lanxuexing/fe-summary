@@ -5,6 +5,42 @@ const PENDING = 'PENDING';
 const RESOLVE = 'RESOLVE';
 const REJECT = 'REJECT';
 
+// 判断x的状态（普通值或者是Promise），是让Promise2变成成功态或者是失败态
+function resolvePromise(promise2, x, resolve, reject) {
+    // 此方法为了兼容所有的promise，n个库中间执行的流程是一样的
+    // 1. 不能引用同一个对象，会造成死循环
+    if (promise2 === x) {
+        return reject(new TypeError('Chaining cycle detected for promise #<Promise> at at processTicksAndRejections ...'))
+    }
+
+    // 2. 判断x的类型：x如果是对象或者函数，说明它有可能是一个promise
+    if ((typeof x === 'object' && x != null) || typeof x === 'function') {
+        // 有可能是一个promise
+        try {
+            let then = x.then // {a: 1} 因为then方法可能使用的是getter来定义的
+            if (typeof then === 'function') { // 认为就是个promise
+                // call 改变this指向，并且让函数执行
+                then.call(
+                    x,
+                    (y) => {
+                        resolve(y)
+                    },
+                    (r) => {
+                        reject(r)
+                    }
+                )
+            } else {
+                // {a: 1, then: 2}
+                resolve(x)
+            }
+        } catch (error) {
+            reject(error) // 只要取值失败，就走失败的回调
+        }
+    } else [
+        resolve(x)
+    ]
+}
+
 class Promise {
     constructor(executor) {
         this.status = PENDING;
@@ -39,23 +75,57 @@ class Promise {
     }
 
     then(onfulfilled, onrejected) {
-        if (this.status === RESOLVE) {
-            onfulfilled(this.value)
-        }
-        if (this.status === REJECT) {
-            onrejected(this.reason)
-        }
-        // 异步逻辑处理
-        if (this.status === PENDING) {
-            this.onResolvedCallbacks.push(() => {
-                // TODO ...切片编程
-                onfulfilled(this.value)
-            })
-            this.onRejectedCallbacks.push(() => {
-                // TODO ...切片编程
-                onrejected(this.value)
-            })
-        }
+        let promise2 = new Promise((resolve, reject) => {
+            if (this.status === RESOLVE) {
+                // onfulfilled 和 onrejected 不能在当前上下文调用，在事件环中需要异步调用，
+                // 应该是用macro-task宏任务【setTimeout、setImmediate】，或者使用micro-task微任务【MutationObserver、process.nextTick】
+                setTimeout(() => {
+                    try {
+                        let x = onfulfilled(this.value)
+                        resolvePromise(promise2, x, resolve, reject)
+                    } catch (error) { // 一旦执行then方法报错，就走到外层then的错误方法reject里
+                        console.log('====', error)
+                        reject(error)
+                    }
+                }, 0);
+            }
+            if (this.status === REJECT) {
+                setTimeout(() => {
+                    try {
+                        let x = onrejected(this.reason)
+                        resolvePromise(promise2, x, resolve, reject)
+                    } catch (error) {
+                        reject(error)
+                    }
+                }, 0);
+            }
+            // 异步逻辑处理
+            if (this.status === PENDING) {
+                this.onResolvedCallbacks.push(() => {
+                    // ...切片编程
+                    setTimeout(() => {
+                        try {
+                            let x = onfulfilled(this.value)
+                            resolvePromise(promise2, x, resolve, reject)
+                        } catch (error) {
+                            reject(error)
+                        }
+                    }, 0);
+                })
+                this.onRejectedCallbacks.push(() => {
+                    // ...切片编程
+                    setTimeout(() => {
+                        try {
+                            let x = onrejected(this.reason)
+                            resolvePromise(promise2, x, resolve, reject)
+                        } catch (error) {
+                            reject(error)
+                        }
+                    }, 0);
+                })
+            }
+        })
+        return promise2 // 每次then都返回一个新的Promise
     }
 }
 
